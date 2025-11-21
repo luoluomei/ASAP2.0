@@ -75,7 +75,7 @@ elif PROVIDER == "CLAUDE":
 
 **Methodology:** The model acts as an expert scorer and assigns a single integer score (1–6) based on the official ASAP 2.0 holistic rubric and provided reference examples.
 
-**Prompt Structure (Exact Match):**
+**Prompt Structure:**
 - **System:** Expert role definition.
 - **OFFICIAL RUBRIC:** The complete text of the ASAP 2.0 holistic rubric.
 - **REFERENCE EXAMPLES:** Few-shot examples from the training set (Score 1-6).
@@ -90,7 +90,7 @@ elif PROVIDER == "CLAUDE":
 
 **Methodology:** Uses Chain-of-Thought (CoT) decomposition. The model evaluates the essay on three distinct dimensions (Development, Organization, Language) independently before calculating the final score. This uses a detailed breakdown of the rubric and does not use few-shot examples to save context window space for the detailed criteria.
 
-**Prompt Structure (Exact Match):**
+**Prompt Structure:**
 - **System:** Expert MTS Scorer role.
 - **RUBRIC:** Detailed criteria for Development, Organization, and Language (Score 1 & 6 anchors).
 - **TARGET ESSAY:** The full text of the essay to be scored.
@@ -108,7 +108,7 @@ elif PROVIDER == "CLAUDE":
 
 **Methodology:** The model performs pairwise comparisons between the target essay and "Anchor Essays" (representative essays for scores 1-6 from the training set). Rankings are aggregated using the Bradley-Terry statistical model to predict the final score.
 
-**Prompt Structure (Exact Match):**
+**Prompt Structure:**
 - **System:** Comparative task definition.
 - **RUBRIC:** The complete Official ASAP 2.0 holistic rubric.
 - **ESSAY A:** The full text of the target essay (no truncation).
