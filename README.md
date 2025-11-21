@@ -69,70 +69,55 @@ elif PROVIDER == "CLAUDE":
 
 ---
 
-## Baseline Descriptions
+# Baseline Descriptions & Prompt Structures
 
-### Baseline 1: Holistic Scoring (Direct Assessment)
+## Baseline 1: Holistic Scoring (Few-Shot)
 
-**Methodology:** The model acts as an expert scorer and assigns a single integer score (1–6) based on the official ASAP 2.0 holistic rubric.
+**Methodology:** The model acts as an expert scorer and assigns a single integer score (1–6) based on the official ASAP 2.0 holistic rubric and provided reference examples.
 
-**Prompt Structure:**
+**Prompt Structure (Exact Match):**
+- **System:** Expert role definition.
+- **OFFICIAL RUBRIC:** The complete text of the ASAP 2.0 holistic rubric.
+- **REFERENCE EXAMPLES:** Few-shot examples from the training set (Score 1-6).
+- **TARGET ESSAY:** The full text of the essay to be scored.
+- **TASK:** Instruction to assign a holistic integer score.
 
-- System: Role definition.  
-- Context: The complete Official Rubric + Few-Shot Reference Examples.  
-- Input: The full target essay.  
-- Task: Assign a single integer score.  
-- Output: A single integer (1-6).
-
-### Baseline 2: Multi-Trait Scoring (MTS)
-
-**Methodology:** Uses Chain-of-Thought (CoT) decomposition. The model evaluates the essay on three distinct dimensions before calculating the final score. This helps reduce hallucination and improves explainability.
-
-**Prompt Structure:**
-
-- Context: Detailed criteria for Development, Organization, and Language.  
-- Input: The full target essay.  
-- Task: Output scores for all three traits in a structured format.  
-- Output: Three sub-scores (e.g., Dev: 4, Org: 3, Lang: 4). The final prediction is the rounded mean of these traits.
-
-### Baseline 3: Pairwise Comparison (Bradley-Terry Model)
-
-**Methodology:** Instead of absolute scoring, the model performs pairwise comparisons between the target essay and "Anchor Essays" (representative essays for scores 1-6 from the training set). The rankings are aggregated using the Bradley-Terry statistical model to predict the final score.
-
-**Prompt Structure:**
-
-- Context: Official Rubric.  
-- Comparison: [Essay A] vs [Essay B].  
-- Task: "Which essay demonstrates better mastery? Output Essay A or Essay B."  
-- Output: A binary preference label.
-
-**Note:** This baseline is computationally expensive (N * 6 API calls). Please ensure you have sufficient quota/credits before running on the full test set.
+**Output:** A single integer (1-6).
 
 ---
 
-## Execution Instructions
+## Baseline 2: Multi-Trait Scoring (Zero-Shot)
 
-First, install the required dependencies:
+**Methodology:** Uses Chain-of-Thought (CoT) decomposition. The model evaluates the essay on three distinct dimensions (Development, Organization, Language) independently before calculating the final score. This uses a detailed breakdown of the rubric and does not use few-shot examples to save context window space for the detailed criteria.
 
-Bash
+**Prompt Structure (Exact Match):**
+- **System:** Expert MTS Scorer role.
+- **RUBRIC:** Detailed criteria for Development, Organization, and Language (Score 1 & 6 anchors).
+- **TARGET ESSAY:** The full text of the essay to be scored.
+- **TASK:** Instruction to score 3 traits independently in a specific format.
 
-```bash
-pip install google-generativeai pandas scikit-learn openai choix
-```
+**Output:** Structured text containing:
+- `Development: [Score]`
+- `Organization: [Score]`
+- `Language: [Score]`  
+  *(Final prediction is the rounded mean of these three.)*
 
-Run the experiments in order:
+---
 
-Bash
+## Baseline 3: Pairwise Comparison (Bradley-Terry Model)
 
-```bash
-# 1. Run Holistic Baseline
-python run_baseline1.py
+**Methodology:** The model performs pairwise comparisons between the target essay and "Anchor Essays" (representative essays for scores 1-6 from the training set). Rankings are aggregated using the Bradley-Terry statistical model to predict the final score.
 
-# 2. Run Multi-Trait Baseline
-python run_baseline2.py
+**Prompt Structure (Exact Match):**
+- **System:** Comparative task definition.
+- **RUBRIC:** The complete Official ASAP 2.0 holistic rubric.
+- **ESSAY A:** The full text of the target essay (no truncation).
+- **ESSAY B:** The full text of the anchor essay (no truncation).
+- **TASK:** "Which essay better demonstrates the mastery described in the rubric?"
 
-# 3. Run Pairwise Baseline (Warning: Long execution time)
-python run_baseline3.py
-```
+**Output:** `"Essay A"` or `"Essay B"`.
+
+**Note:** This baseline is computationally expensive (N * 6 API calls per essay).
 
 ---
 
