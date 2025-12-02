@@ -136,12 +136,7 @@ def generate_trait_rubric(
     max_tokens: int = 1200
 ):
     """
-    让 LLM 把官方 Holistic rubric 转写为：
-    {
-      "development": {"1":"...","2":"...",...,"6":"..."},
-      "organization": {"1":"...",...,"6":"..."},
-      "language": {"1":"...",...,"6":"..."}
-    }
+    让 LLM 把官方 Holistic rubric 转写为三维 rubric JSON。
     失败则回退 DEFAULT_MTS_RUBRIC。
     """
     if (not force_regen) and os.path.exists(cache_path):
@@ -155,7 +150,6 @@ def generate_trait_rubric(
         except Exception:
             print("[Rubric] Cache exists but invalid, will regenerate...")
 
-    # 关键：避免在 f-string 里直接写一堆 { }，否则很容易触发 SyntaxError
     schema_example = """
 {
   "development": {"1": "...", "2": "...", "3": "...", "4": "...", "5": "...", "6": "..."},
@@ -172,7 +166,7 @@ Return STRICT JSON ONLY (no commentary), schema:
 {schema_example}
 
 Rules:
-- Each level must be 1–2 sentences, observable from text (e.g., source-use specificity, cohesion markers, sentence control).
+- Each level must be 1–2 sentences, observable from text.
 - Keep concise. NO extra keys. NO markdown.
 
 === OFFICIAL HOLISTIC RUBRIC ===
@@ -182,7 +176,6 @@ Rules:
     try:
         norm = _normalize_json_str(raw)
         obj = json.loads(norm)
-        # 基本校验
         for k in ("development", "organization", "language"):
             if k not in obj:
                 raise ValueError(f"Missing key: {k}")
@@ -210,7 +203,6 @@ def rubric_json_to_prompt_text(rj) -> str:
     lng = block("TRAIT 3: LANGUAGE (Vocabulary, Sentence Control, Mechanics)", "language")
     return dev + "\n\n" + org + "\n\n" + lng
 
-# ============== 解析 & 工具 ==============
 def parse_mts_triplet(raw_text: str):
     """从 LLM 文本里解析 Development/Organization/Language 三个 1-6 分。"""
     def _one(key):
@@ -226,7 +218,6 @@ def parse_mts_triplet(raw_text: str):
 def clamp_int(x, lo, hi):
     return int(max(lo, min(hi, round(float(x)))))
 
-# ============== 拟合 (dev split) ==============
 def fit_dev_mapping(dev_df: pd.DataFrame, rubric_text: str, rubric_id: str):
     """
     用动态 rubric 对 dev split 打分，拟合：
@@ -255,7 +246,6 @@ Language: [Score]
         start_t = time.time()
         out = C.call_llm(prompt, max_tokens=300)
 
-        # 兼容 common.call_llm 返回 (txt,in) 或 (txt,in,out)
         if isinstance(out, (list, tuple)) and len(out) >= 1:
             raw_out = out[0]
             in_tok = out[1] if len(out) >= 2 else 0
@@ -293,7 +283,6 @@ Language: [Score]
     lin = LinearRegression().fit(X, y)
     y_hat_lin = lin.predict(X)
 
-    # Isotonic 输出区间应当跟 human score 对齐（不一定是 1-6）
     iso = IsotonicRegression(
         y_min=float(score_min),
         y_max=float(score_max),
@@ -302,9 +291,8 @@ Language: [Score]
     )
     iso.fit(y_hat_lin, y)
 
-    # Dev 端 QWK（对照）
     y_true = y.astype(int)
-    y_pred_avg = np.clip(np.rint(np.mean(X, axis=1)), 1, 6).astype(int)  # legacy: 仍然是 1-6 平均
+    y_pred_avg = np.clip(np.rint(np.mean(X, axis=1)), 1, 6).astype(int)  # legacy: 1-6 average
     y_pred_lin = np.clip(np.rint(y_hat_lin), score_min, score_max).astype(int)
     y_pred_iso = np.clip(np.rint(iso.predict(y_hat_lin)), score_min, score_max).astype(int)
 
@@ -324,7 +312,6 @@ Language: [Score]
     }
     return lin, iso, score_min, score_max, rows, dev_report
 
-# ============== 目标集推断 ==============
 def score_targets_and_export(lin, iso, rubric_text: str, rubric_id: str, target_df: pd.DataFrame, score_min: int, score_max: int):
     results_legacy, results_linear, results_isotonic, rows_all = [], [], [], []
 
@@ -353,14 +340,11 @@ Language: [Score]
             raw_out, in_tok = str(out), 0
 
         latency = time.time() - start_t
-
         d, o, l = parse_mts_triplet(raw_out)
 
-        # 旧版：简单平均(1-6)
         avg_pred = (d + o + l) / 3.0
         final_avg = clamp_int(avg_pred, 1, 6)
 
-        # 线性 / isotonic：预测到 human scale，再按 dev 的 score range 裁剪
         lin_pred = float(lin.predict(np.array([[d, o, l]], dtype=float))[0])
         iso_pred = float(iso.predict([lin_pred])[0])
 
@@ -369,7 +353,6 @@ Language: [Score]
 
         human_score = int(row[C.score_col])
 
-        # legacy
         results_legacy.append({
             'essay_id': row[C.id_col],
             'human_score': human_score,
@@ -380,7 +363,6 @@ Language: [Score]
             'latency': round(latency, 2),
             'raw_output': raw_out[:2000]
         })
-        # linear
         results_linear.append({
             'essay_id': row[C.id_col],
             'human_score': human_score,
@@ -391,7 +373,6 @@ Language: [Score]
             'latency': round(latency, 2),
             'raw_output': raw_out[:2000]
         })
-        # isotonic
         results_isotonic.append({
             'essay_id': row[C.id_col],
             'human_score': human_score,
@@ -402,7 +383,6 @@ Language: [Score]
             'latency': round(latency, 2),
             'raw_output': raw_out[:2000]
         })
-        # all
         rows_all.append({
             'essay_id': row[C.id_col],
             'human_score': human_score,
@@ -421,35 +401,26 @@ Language: [Score]
         if getattr(C, "PROVIDER", "MOCK") != "MOCK":
             time.sleep(1)
 
-    # 1) 旧版报告（简单平均）
     C.save_results(results_legacy, "Baseline2_MTS_FullContext")
-
-    # 2) 线性 / 3) Isotonic 报告
     C.save_results(results_linear, "Baseline2_MTS_FullContext_CALIB_Linear")
     C.save_results(results_isotonic, "Baseline2_MTS_FullContext_CALIB_Isotonic")
 
-    # 4) 汇总 CSV
     ts = time.strftime('%Y%m%d_%H%M%S')
     prefix = "MOCK_" if getattr(C, "PROVIDER", "MOCK") == "MOCK" else ""
     all_csv = f"{prefix}Baseline2_MTS_FullContext_ALL_{ts}.csv"
     pd.DataFrame(rows_all).to_csv(all_csv, index=False)
     print(f"[All-in-One] Saved -> {all_csv}")
 
-    # 同场对照 QWK（注意：legacy avg 是 1-6；linear/iso 是 human scale）
     df_all = pd.DataFrame(rows_all)
     y_true = df_all['human_score'].astype(int).to_numpy()
-
     qwk_avg = cohen_kappa_score(y_true, df_all['pred_avg'].astype(int).to_numpy(), weights='quadratic')
     qwk_lin = cohen_kappa_score(y_true, df_all['pred_linear'].astype(int).to_numpy(), weights='quadratic')
     qwk_iso = cohen_kappa_score(y_true, df_all['pred_isotonic'].astype(int).to_numpy(), weights='quadratic')
-
     print(f"[QWK on target] avg(legacy 1-6)={qwk_avg:.4f} | linear={qwk_lin:.4f} | isotonic={qwk_iso:.4f}")
 
-# =================== 主流程 ===================
 def run(force_regen: bool = False, test_limit: int = 0):
     print(f"\n🚀 Baseline 2 (Dynamic Rubric → Dev Mapping), provider={getattr(C, 'PROVIDER', 'MOCK')}, model={getattr(C, 'MODEL_NAME', 'N/A')}")
 
-    # Step 0: 动态生成三维度锚点
     official_text = _read_official_rubric_text()
     rubric_obj = generate_trait_rubric(
         holistic_text=official_text,
@@ -462,7 +433,6 @@ def run(force_regen: bool = False, test_limit: int = 0):
     rubric_text = rubric_json_to_prompt_text(rubric_obj)
     print(f"[Rubric] rubric_id={rubric_id} (source={'DOCX' if official_text != getattr(C,'HOLISTIC_RUBRIC_FULL','') else 'common.HOLISTIC_RUBRIC_FULL'})")
 
-    # Step 1: dev split 拟合映射
     if len(C.train_df) == 0:
         raise RuntimeError("train_df is empty; please check data loading in common.py")
 
@@ -479,7 +449,6 @@ def run(force_regen: bool = False, test_limit: int = 0):
 
     lin_model, iso_model, score_min, score_max, dev_rows, dev_report = fit_dev_mapping(dev_df, rubric_text, rubric_id)
 
-    # 导出 dev 拟合过程
     ts = time.strftime('%Y%m%d_%H%M%S')
     prefix = "MOCK_" if getattr(C, "PROVIDER", "MOCK") == "MOCK" else ""
     dev_csv = f"{prefix}Baseline2_MTS_DevSplit_{ts}.csv"
@@ -493,7 +462,6 @@ def run(force_regen: bool = False, test_limit: int = 0):
     print(f"[Dev-Fit] Linear coef={dev_report['linear_coef']}, intercept={dev_report['linear_intercept']:.4f}")
     print(f"[Dev-Fit] QWK(dev): avg(legacy 1-6)={dev_report['qwk_dev_avg']:.4f} | linear={dev_report['qwk_dev_linear']:.4f} | isotonic={dev_report['qwk_dev_iso']:.4f}")
 
-    # Step 2/3: 目标集推断 & 导出
     score_targets_and_export(lin_model, iso_model, rubric_text, rubric_id, target_use, score_min, score_max)
 
 def parse_args():
@@ -509,13 +477,11 @@ def parse_args():
 if __name__ == "__main__":
     args = parse_args()
 
-    # 注入/覆盖 API Keys
     if args.openai_key:
         os.environ["OPENAI_API_KEY"] = args.openai_key.strip()
     if args.google_key:
         os.environ["GOOGLE_API_KEY"] = args.google_key.strip()
 
-    # 运行时覆写 provider / model（若 common 中存在）
     if args.provider is not None:
         try:
             C.PROVIDER = args.provider
